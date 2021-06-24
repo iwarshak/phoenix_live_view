@@ -6,6 +6,8 @@ defmodule Phoenix.LiveView.Upload do
 
   @refs_to_names :__phoenix_refs_to_names__
 
+  require Logger
+
   @doc """
   Allows an upload.
   """
@@ -116,10 +118,13 @@ defmodule Phoenix.LiveView.Upload do
   """
   def update_progress(%Socket{} = socket, config_ref, entry_ref, progress)
       when is_integer(progress) and progress >= 0 and progress <= 100 do
-    socket
+    now = DateTime.utc_now()
+    res = socket
     |> get_upload_by_ref!(config_ref)
     |> UploadConfig.update_progress(entry_ref, progress)
     |> update_uploads(socket)
+    Logger.warn("phoenix_live_view update_progress is time_ms: #{DateTime.diff(DateTime.utc_now(), now, :milliseconds)}")
+    res
   end
 
   def update_progress(%Socket{} = socket, config_ref, entry_ref, %{"error" => reason})

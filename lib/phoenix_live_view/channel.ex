@@ -135,23 +135,30 @@ defmodule Phoenix.LiveView.Channel do
   end
 
   def handle_info(%Message{topic: topic, event: "progress"} = msg, %{topic: topic} = state) do
+    Logger.warn("phoenix_live_view handle_info#progress start")
     cid = msg.payload["cid"]
-
+    now = DateTime.utc_now()
     new_state =
       write_socket(state, cid, msg.ref, fn socket, _ ->
         %{"ref" => ref, "entry_ref" => entry_ref, "progress" => progress} = msg.payload
         new_socket = Upload.update_progress(socket, ref, entry_ref, progress)
+        new_socket_time = DateTime.diff(DateTime.utc_now(), now, :milliseconds)
         upload_conf = Upload.get_upload_by_ref!(new_socket, ref)
+        upload_conf_time = DateTime.diff(DateTime.utc_now(), now, :milliseconds)
         entry = UploadConfig.get_entry_by_ref(upload_conf, entry_ref)
+        entry_time = DateTime.diff(DateTime.utc_now(), now, :milliseconds)
 
         if event = entry && upload_conf.progress_event do
           {:noreply, new_socket} = event.(upload_conf.name, entry, new_socket)
+          res_time = DateTime.diff(DateTime.utc_now(), now, :milliseconds)
+          Logger.warn("phoenix_live_view handle_info#progress new_socket_time: #{new_socket_time} upload_conf_time: #{upload_conf_time} entry_time: #{entry_time} res_time: #{res_time} event: #{inspect event}")
           {new_socket, {:ok, {msg.ref, %{}}, state}}
         else
           {new_socket, {:ok, {msg.ref, %{}}, state}}
         end
       end)
 
+    Logger.warn("phoenix_live_view handle_info#progress final is time_ms: #{DateTime.diff(DateTime.utc_now(), now, :milliseconds)}")
     {:noreply, new_state}
   end
 
@@ -591,14 +598,19 @@ defmodule Phoenix.LiveView.Channel do
   defp gather_keys(_, acc), do: acc
 
   defp handle_changed(state, %Socket{} = new_socket, ref, pending_live_patch \\ nil) do
+    now = DateTime.utc_now()
+
     new_state = %{state | socket: new_socket}
 
     case maybe_diff(new_state, false) do
+      #
       {:diff, diff, new_state} ->
-        {:noreply,
+        res = {:noreply,
          new_state
          |> push_live_patch(pending_live_patch)
          |> push_diff(diff, ref)}
+         Logger.warn("phoenix_live_view handle_changed is time_ms: #{DateTime.diff(DateTime.utc_now(), now, :milliseconds)}")
+         res
 
       result ->
         handle_redirect(new_state, result, Utils.changed_flash(new_socket), ref)
@@ -717,6 +729,8 @@ defmodule Phoenix.LiveView.Channel do
   end
 
   defp render_diff(state, socket, force?) do
+    now = DateTime.utc_now()
+
     {socket, diff, components} =
       if force? or Utils.changed?(socket) do
         rendered = Utils.to_rendered(socket, socket.view)
@@ -726,7 +740,11 @@ defmodule Phoenix.LiveView.Channel do
       end
 
     diff = Diff.render_private(socket, diff)
-    {:diff, diff, %{state | socket: Utils.clear_changed(socket), components: components}}
+
+    res = {:diff, diff, %{state | socket: Utils.clear_changed(socket), components: components}}
+    Logger.warn("phoenix_live_view render_diff is time_ms: #{DateTime.diff(DateTime.utc_now(), now, :milliseconds)}")
+
+    res
   end
 
   defp reply(state, {ref, extra}, status, payload) do
@@ -1017,11 +1035,15 @@ defmodule Phoenix.LiveView.Channel do
   # If :error is returned, the socket must not change,
   # otherwise we need to call push_diff on all cases.
   defp write_socket(state, nil, ref, fun) do
+    now = DateTime.utc_now()
     {new_socket, return} = fun.(state.socket, nil)
+    Logger.warn("phoenix_live_view write_socket - fun.(state.socket, nil) (fun is #{inspect fun}) is time_ms: #{DateTime.diff(DateTime.utc_now(), now, :milliseconds)}")
+
 
     case return do
       {:ok, ref_reply, new_state} ->
         {:noreply, new_state} = handle_changed(new_state, new_socket, ref_reply)
+        Logger.warn("phoenix_live_view write_socket - cid=nil is time_ms: #{DateTime.diff(DateTime.utc_now(), now, :milliseconds)}")
         new_state
 
       :error ->
@@ -1030,6 +1052,7 @@ defmodule Phoenix.LiveView.Channel do
   end
 
   defp write_socket(state, cid, ref, fun) do
+    now = DateTime.utc_now()
     %{socket: socket, components: components} = state
 
     {diff, new_components, return} =
@@ -1041,8 +1064,10 @@ defmodule Phoenix.LiveView.Channel do
     case return do
       {:ok, ref_reply, new_state} ->
         new_state = %{new_state | components: new_components}
-        push_diff(new_state, diff, ref_reply)
+        res = push_diff(new_state, diff, ref_reply)
+        Logger.warn("phoenix_live_view write_socket is time_ms: #{DateTime.diff(DateTime.utc_now(), now, :milliseconds)}")
 
+        res
       :error ->
         push_noop(state, ref)
     end
